@@ -300,7 +300,38 @@ def test_drop_unclosed():
     print("OK velas: se descarta la vela en formacion")
 
 
+import save_claude  # noqa: E402
+
+
+def test_save_claude_and_stats_by_method():
+    out = Path(tempfile.mkdtemp())
+    j = journal.Journal(str(out / "journal.db"))
+    r = j.start_run("2026-11-09T00:00:00Z")
+    for s in ("BTCUSDT", "ETHUSDT"):
+        j.save_prediction(r, s, "2026-11-09T00:00:00Z", 100.0, 0.4, "baseline_v1", ref_mom=0.6)
+    j.end_run(r, True)
+    sent = []
+    p = {"BTCUSDT": {"prob_up": 0.55, "invalidation": 95.0, "note": "x"}}
+    res = save_claude.save_claude(p, out, send=lambda t: sent.append(t) or True)
+    assert res["saved"] == ["BTCUSDT"] and "BTCUSDT" in sent[0]
+    assert save_claude.save_claude(p, out, send=lambda t: True)["saved"] == []  # sin duplicados
+    for bad in ({"BTCUSDT": {"prob_up": 0.99, "invalidation": 1, "note": ""}},
+                {"XRPUSDT": {"prob_up": 0.5, "invalidation": 1, "note": ""}}):
+        try:
+            save_claude.save_claude(bad, out, send=lambda t: True)
+            raise AssertionError("debio fallar")
+        except ValueError:
+            pass
+    for pid in [x["id"] for x in j.pending("2026-11-12T00:00:00Z")]:
+        j.resolve(pid, 110.0, "2026-11-12T00:00:00Z")
+    assert j.stats("claude_v1")["global"]["n_resolved"] == 1
+    assert j.stats("baseline_v1")["global"]["n_resolved"] == 2
+    assert set(j.methods()) == {"baseline_v1", "claude_v1"}
+    print("OK claude manual: guarda sin duplicar, valida y separa estadisticas por metodo")
+
+
 if __name__ == "__main__":
+    test_save_claude_and_stats_by_method()
     test_drop_unclosed()
     test_parse_ok()
     test_parse_gap_raises()

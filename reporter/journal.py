@@ -62,20 +62,36 @@ class Journal:
              _brier(r["ref50"], outcome), _brier(r["ref_mom"], outcome), pred_id))
         self.db.commit()
 
-    def stats(self) -> dict:
-        """Por moneda y global. n_runs cuenta corridas completadas; n_failed_runs las fallidas o sin terminar."""
+    def methods(self) -> list[str]:
+        return [r[0] for r in self.db.execute("SELECT DISTINCT method FROM predictions ORDER BY method")]
+
+    def last_run_predictions(self, method: str) -> list[dict]:
+        """Predicciones de `method` en la ultima corrida que las tiene (para colgar otro metodo de la misma corrida)."""
+        rid = self.db.execute("SELECT MAX(run_id) FROM predictions WHERE method=?", (method,)).fetchone()[0]
+        rows = self.db.execute("SELECT run_id, symbol, ts, price, ref_mom, prob_up FROM predictions "
+                               "WHERE run_id=? AND method=?", (rid, method)).fetchall()
+        return [dict(r) for r in rows]
+
+    def has_prediction(self, run_id: int, symbol: str, method: str) -> bool:
+        return self.db.execute("SELECT 1 FROM predictions WHERE run_id=? AND symbol=? AND method=?",
+                               (run_id, symbol, method)).fetchone() is not None
+
+    def stats(self, method: str | None = None) -> dict:
+        """Por moneda y global (opcionalmente de un solo metodo). n_runs cuenta corridas completadas."""
+        mfilter, margs = ("AND method=?", (method,)) if method else ("", ())
+
         def agg(where: str, args: tuple = ()) -> dict:
             r = self.db.execute(
                 "SELECT COUNT(*) n, AVG(brier) b, AVG(brier_ref50) b50, AVG(brier_mom) bm, "
                 "AVG((prob_up>=0.5)=outcome) acc, AVG((ref_mom>=0.5)=outcome) acc_mom "
-                f"FROM predictions WHERE outcome IS NOT NULL {where}", args).fetchone()
+                f"FROM predictions WHERE outcome IS NOT NULL {mfilter} {where}", margs + args).fetchone()
             return {"n_resolved": r["n"], "brier": r["b"], "brier_ref50": r["b50"], "brier_mom": r["bm"],
                     "accuracy": r["acc"], "accuracy_mom": r["acc_mom"]}
         out = {"global": agg("")}
         out["global"]["n_runs"] = self.db.execute("SELECT COUNT(*) FROM runs WHERE ok=1").fetchone()[0]
         out["global"]["n_failed_runs"] = self.db.execute("SELECT COUNT(*) FROM runs WHERE ok IS NOT 1").fetchone()[0]
         out["global"]["n_runs_resolved"] = self.db.execute(
-            "SELECT COUNT(DISTINCT run_id) FROM predictions WHERE outcome IS NOT NULL").fetchone()[0]
+            f"SELECT COUNT(DISTINCT run_id) FROM predictions WHERE outcome IS NOT NULL {mfilter}", margs).fetchone()[0]
         for (sym,) in self.db.execute("SELECT DISTINCT symbol FROM predictions ORDER BY symbol").fetchall():
             out[sym] = agg("AND symbol=?", (sym,))
         return out

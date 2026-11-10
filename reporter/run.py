@@ -56,11 +56,13 @@ def _write_stats(j: journal.Journal, out_dir: Path) -> None:
         return "n/d" if x is None else f"{x:.3f}"
     rows = ["# Estadisticas del journal", "", "| Moneda | Evaluadas | Brier modelo | Brier 50% | Brier momentum | Acierto | Acierto momentum |",
             "|---|---|---|---|---|---|---|"]
-    st = j.stats()
-    for k, v in st.items():
-        rows.append(f"| {k} | {v['n_resolved']} | {f(v['brier'])} | {f(v['brier_ref50'])} | {f(v['brier_mom'])} | "
-                    f"{f(v['accuracy'])} | {f(v['accuracy_mom'])} |")
-    g = st["global"]
+    g = j.stats()["global"]
+    for m in j.methods() or [None]:
+        st = j.stats(m)
+        rows += ["", f"## Metodo: {m or 'ninguno'}", "", rows[2], rows[3]]
+        for k, v in st.items():
+            rows.append(f"| {k} | {v['n_resolved']} | {f(v['brier'])} | {f(v['brier_ref50'])} | {f(v['brier_mom'])} | "
+                        f"{f(v['accuracy'])} | {f(v['accuracy_mom'])} |")
     rows += ["", f"Corridas completadas: {g['n_runs']} (fallidas/sin terminar: {g['n_failed_runs']}). "
                  "Se necesitan >=100 evaluadas por moneda antes de concluir nada."]
     (out_dir / "stats.md").write_text("\n".join(rows), encoding="utf-8")
