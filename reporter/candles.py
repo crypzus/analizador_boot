@@ -32,6 +32,12 @@ def parse_klines(raw: list, interval: str) -> pd.DataFrame:
     return df
 
 
+def drop_unclosed(raw: list, now_ms: float | None = None) -> list:
+    """Quita la vela en formacion (su cierre esta en el futuro): su volumen parcial distorsiona indicadores."""
+    now_ms = time.time() * 1000 if now_ms is None else now_ms
+    return [r for r in raw if len(r) < 7 or int(r[6]) < now_ms]
+
+
 def fetch_klines(symbol: str, interval: str, limit: int) -> pd.DataFrame:
     """Descarga con 3 reintentos; si api.binance.com responde 451 (bloqueo regional) usa data-api.binance.vision."""
     last: Exception | None = None
@@ -44,7 +50,7 @@ def fetch_klines(symbol: str, interval: str, limit: int) -> pd.DataFrame:
                     last = RuntimeError("451 bloqueo regional")
                     break  # probar el siguiente host
                 r.raise_for_status()
-                return parse_klines(r.json(), interval)
+                return parse_klines(drop_unclosed(r.json()), interval)
             except (requests.RequestException, ValueError) as e:
                 last = e
                 time.sleep(2 ** attempt)

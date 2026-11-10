@@ -293,7 +293,15 @@ def test_notify_never_prints_token():
     print("OK telegram: el token no se imprime")
 
 
+def test_drop_unclosed():
+    raw = kl(3)  # la ultima cierra en start + 3*H4 - 1
+    assert len(candles.drop_unclosed(raw, now_ms=raw[2][6] + 1)) == 3
+    assert len(candles.drop_unclosed(raw, now_ms=raw[2][6] - 5)) == 2  # ultima aun abierta
+    print("OK velas: se descarta la vela en formacion")
+
+
 if __name__ == "__main__":
+    test_drop_unclosed()
     test_parse_ok()
     test_parse_gap_raises()
     test_parse_unordered_raises()
