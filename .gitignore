@@ -1,0 +1,17 @@
+referencias/
+.venv/
+config.json
+config.private.json
+.env
+*.sqlite
+user_data/data/
+user_data/logs/
+user_data/backtest_results/
+__pycache__/
+
+# salidas locales de monitor y reporter
+monitor/out/
+reporter/out/
+*.db
+*.lock
+*.jsonl
