@@ -57,9 +57,68 @@ def test_parse_incomplete_row_raises():
     raise AssertionError("debio lanzar ValueError")
 
 
+import indicators  # noqa: E402
+import pandas as pd  # noqa: E402
+
+
+def mk(closes, highs=None, lows=None):
+    n = len(closes)
+    return pd.DataFrame({
+        "open_time": pd.date_range("2026-01-01", periods=n, freq="4h", tz="UTC"),
+        "open": closes,
+        "high": highs if highs is not None else [c + 1 for c in closes],
+        "low": lows if lows is not None else [c - 1 for c in closes],
+        "close": closes, "volume": [5.0] * n})
+
+
+def test_trend_up_rsi_100():
+    a = indicators.analyze(mk([100.0 + i for i in range(60)]))
+    assert a["trend"] == "up" and a["rsi14"] == 100.0
+    assert a["last_close"] == 159.0 and a["ema20"] < a["last_close"] and a["ema50"] < a["ema20"]
+    print("OK indicadores: tendencia alcista, RSI 100")
+
+
+def test_trend_down():
+    a = indicators.analyze(mk([200.0 - i for i in range(60)]))
+    assert a["trend"] == "down" and a["rsi14"] == 0.0
+    print("OK indicadores: tendencia bajista")
+
+
+def test_trend_range():
+    a = indicators.analyze(mk([100.0] * 60))
+    assert a["trend"] == "range" and a["rsi14"] == 50.0
+    print("OK indicadores: lateral")
+
+
+def test_levels_swings():
+    closes = [100.0] * 50
+    highs = [101.0] * 50
+    highs[10], highs[30] = 120.0, 115.0
+    lows = [99.0] * 50
+    lows[20] = 80.0
+    lv = indicators.key_levels(mk(closes, highs, lows))
+    assert lv["resistances"] == [115.0, 120.0]  # mas cercana primero
+    assert lv["supports"] == [80.0]
+    print("OK indicadores: niveles por swings")
+
+
+def test_short_series_raises():
+    try:
+        indicators.analyze(mk([100.0] * 49))
+    except ValueError:
+        print("OK indicadores: serie corta rechazada")
+        return
+    raise AssertionError("debio lanzar ValueError")
+
+
 if __name__ == "__main__":
     test_parse_ok()
     test_parse_gap_raises()
     test_parse_unordered_raises()
     test_parse_incomplete_row_raises()
+    test_trend_up_rsi_100()
+    test_trend_down()
+    test_trend_range()
+    test_levels_swings()
+    test_short_series_raises()
     print("\nTODAS LAS PRUEBAS PASARON")
