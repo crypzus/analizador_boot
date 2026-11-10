@@ -51,5 +51,26 @@ def fetch_klines(symbol: str, interval: str, limit: int) -> pd.DataFrame:
     raise RuntimeError(f"no se pudieron bajar velas {symbol} {interval}: {last}")
 
 
+def fetch_price_at(symbol: str, ts_iso: str) -> float | None:
+    """Cierre de la vela 15m que termina en ts+24 h. None si aun no existe o la red falla (queda pendiente)."""
+    from datetime import datetime, timedelta, timezone
+    target = datetime.strptime(ts_iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) + timedelta(hours=24)
+    start = int(target.timestamp() * 1000) - STEP_MS["15m"]
+    for host in HOSTS:
+        try:
+            r = requests.get(f"{host}/api/v3/klines", timeout=15,
+                             params={"symbol": symbol, "interval": "15m", "startTime": start, "limit": 1})
+            if r.status_code == 451:
+                continue
+            r.raise_for_status()
+            rows = r.json()
+            if rows and int(rows[0][0]) == start and int(rows[0][6]) < time.time() * 1000:
+                return float(rows[0][4])
+            return None
+        except (requests.RequestException, ValueError, IndexError):
+            continue
+    return None
+
+
 def fetch_all(symbol: str) -> dict[str, pd.DataFrame]:
     return {iv: fetch_klines(symbol, iv, n) for iv, n in WINDOWS.items()}

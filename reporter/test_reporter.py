@@ -226,6 +226,73 @@ def test_stats_counts_runs_not_predictions():
     print("OK journal: cuenta corridas, no predicciones; registra fallidas")
 
 
+import contextlib  # noqa: E402
+import io  # noqa: E402
+import os  # noqa: E402
+import notify  # noqa: E402
+import run  # noqa: E402
+import requests  # noqa: E402
+
+
+def test_run_once_one_pair_fails():
+    out = Path(tempfile.mkdtemp())
+    sent = []
+
+    def fetcher(sym):
+        if sym == "ETHUSDT":
+            raise RuntimeError("binance caido")
+        return frames_for(100)
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        res = run.run_once(out, fetcher=fetcher, monitor_db=out / "no.db", send=lambda t: sent.append(t) or True,
+                           resolver=lambda s, ts: None)
+    assert res["failed"] == ["ETHUSDT"] and res["ok"] == ["BTCUSDT", "SOLUSDT", "ADAUSDT"]
+    n = sqlite3.connect(out / "journal.db").execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+    assert n == 3 and "ETHUSDT: sin datos" in sent[0] and not (out / "run.lock").exists()
+    assert "no es asesoria" in (out / "report.md").read_text(encoding="utf-8")
+    print("OK corrida: una moneda falla, las otras siguen, bloqueo liberado")
+
+
+def test_lock_blocks_second_run():
+    out = Path(tempfile.mkdtemp())
+    (out / "run.lock").write_text("x")
+    with contextlib.redirect_stdout(io.StringIO()):
+        res = run.run_once(out, fetcher=lambda s: 1 / 0, send=lambda t: True, resolver=lambda s, ts: None)
+    assert res == {"skipped": "lock"} and not (out / "journal.db").exists() and (out / "run.lock").exists()
+    print("OK corrida: segunda copia sale sin tocar el journal")
+
+
+def test_notify_without_env_returns_false():
+    old = {k: os.environ.pop(k, None) for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")}
+    try:
+        assert notify.send("hola") is False
+    finally:
+        for k, v in old.items():
+            if v is not None:
+                os.environ[k] = v
+    print("OK telegram: sin variables devuelve False")
+
+
+def test_notify_never_prints_token():
+    old = {k: os.environ.get(k) for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")}
+    os.environ["TELEGRAM_BOT_TOKEN"], os.environ["TELEGRAM_CHAT_ID"] = "SECRET123", "1"
+    real = notify.requests.post
+
+    def boom(*a, **k):
+        raise requests.ConnectionError("fallo en https://api.telegram.org/botSECRET123/sendMessage")
+    notify.requests.post = boom
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            assert notify.send("hola") is False
+    finally:
+        notify.requests.post = real
+        for k, v in old.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    assert "SECRET123" not in buf.getvalue()
+    print("OK telegram: el token no se imprime")
+
+
 if __name__ == "__main__":
     test_parse_ok()
     test_parse_gap_raises()
@@ -245,4 +312,8 @@ if __name__ == "__main__":
     test_journal_pending_after_24h_only()
     test_journal_unresolved_stays_pending()
     test_stats_counts_runs_not_predictions()
+    test_run_once_one_pair_fails()
+    test_lock_blocks_second_run()
+    test_notify_without_env_returns_false()
+    test_notify_never_prints_token()
     print("\nTODAS LAS PRUEBAS PASARON")
