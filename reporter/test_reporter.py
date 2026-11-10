@@ -158,6 +158,73 @@ def test_btc_correlation():
 
 
 from datetime import datetime, timezone  # noqa: E402
+import baseline  # noqa: E402
+import journal  # noqa: E402
+
+
+def summ(trend, rsi, support=95.0, resistance=105.0):
+    return {"price": 100.0, "trend_4h": trend, "rsi_4h": rsi, "atr_4h": 2.0, "chg_24h": 0.01,
+            "support": support, "resistance": resistance}
+
+
+def test_baseline_bounds_and_values():
+    assert baseline.predict(summ("up", 50))["prob_up"] == 0.6
+    assert baseline.predict(summ("down", 80))["prob_up"] == 0.35
+    for t in ("up", "down", "range"):
+        for rsi in (0, 20, 50, 80, 100):
+            assert 0.05 <= baseline.predict(summ(t, rsi))["prob_up"] <= 0.95
+    assert baseline.predict(summ("up", 50, support=None))["invalidation"] == 97.0  # precio - 1.5*ATR
+    assert baseline.reference_momentum(0.02) == 0.6 and baseline.reference_momentum(-1) == 0.4
+    print("OK base: probabilidades acotadas e invalidacion")
+
+
+def mkj():
+    return journal.Journal(str(Path(tempfile.mkdtemp()) / "j.db"))
+
+
+def test_journal_resolve_brier():
+    j = mkj()
+    r = j.start_run("2026-11-09T00:00:00Z")
+    pid = j.save_prediction(r, "BTCUSDT", "2026-11-09T00:00:00Z", 100.0, 0.7, "baseline_v1", ref_mom=0.6)
+    j.resolve(pid, 110.0, "2026-11-10T00:00:00Z")
+    row = j.db.execute("SELECT * FROM predictions WHERE id=?", (pid,)).fetchone()
+    assert row["outcome"] == 1 and abs(row["brier"] - 0.09) < 1e-9 and abs(row["brier_ref50"] - 0.25) < 1e-9
+    print("OK journal: resolucion y Brier")
+
+
+def test_journal_pending_after_24h_only():
+    j = mkj()
+    r = j.start_run("2026-11-09T00:00:00Z")
+    j.save_prediction(r, "BTCUSDT", "2026-11-09T00:00:00Z", 100.0, 0.7, "m")
+    assert j.pending("2026-11-09T23:00:00Z") == []
+    assert len(j.pending("2026-11-10T00:00:00Z")) == 1
+    print("OK journal: pendientes solo tras 24 h")
+
+
+def test_journal_unresolved_stays_pending():
+    j = mkj()
+    r = j.start_run("2026-11-09T00:00:00Z")
+    j.save_prediction(r, "BTCUSDT", "2026-11-09T00:00:00Z", 100.0, 0.7, "m")
+    assert len(j.pending("2026-11-12T00:00:00Z")) == 1 and len(j.pending("2026-11-12T00:00:00Z")) == 1
+    assert j.stats()["global"]["n_resolved"] == 0
+    print("OK journal: sin precio queda pendiente")
+
+
+def test_stats_counts_runs_not_predictions():
+    j = mkj()
+    for k, day in enumerate(("09", "10")):
+        r = j.start_run(f"2026-11-{day}T00:00:00Z")
+        for s in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+            pid = j.save_prediction(r, s, f"2026-11-{day}T00:00:00Z", 100.0, 0.6, "m")
+            j.resolve(pid, 101.0, "2026-11-12T00:00:00Z")
+        j.end_run(r, True)
+    r = j.start_run("2026-11-11T00:00:00Z")
+    j.end_run(r, False, "binance caido")
+    g = j.stats()["global"]
+    assert g["n_resolved"] == 6 and g["n_runs"] == 2 and g["n_failed_runs"] == 1 and g["n_runs_resolved"] == 2
+    assert j.stats()["BTCUSDT"]["n_resolved"] == 2
+    print("OK journal: cuenta corridas, no predicciones; registra fallidas")
+
 
 if __name__ == "__main__":
     test_parse_ok()
@@ -173,4 +240,9 @@ if __name__ == "__main__":
     test_news_reads_and_cleans()
     test_build_report_all_pairs_and_disclaimer()
     test_btc_correlation()
+    test_baseline_bounds_and_values()
+    test_journal_resolve_brier()
+    test_journal_pending_after_24h_only()
+    test_journal_unresolved_stays_pending()
+    test_stats_counts_runs_not_predictions()
     print("\nTODAS LAS PRUEBAS PASARON")
