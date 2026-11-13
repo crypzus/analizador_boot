@@ -21,6 +21,12 @@ Cada prediccion (prob. de subir en 24 h) se compara 24 h despues con el cierre d
 Se reporta el Brier del modelo frente a dos referencias ("siempre 50 %" y "repite la direccion de las ultimas 24 h").
 Las 4 monedas se mueven juntas: cuenta el numero de **corridas**, no de predicciones. No concluir con menos de ~100 evaluadas por moneda.
 
+## Exportar para analizar con Claude (gratis, sin API)
+`python reporter/export.py` hace una corrida fresca y manda a Telegram dos mensajes de texto: `📋 DATOS TÉCNICOS` y
+`📰 NOTICIAS` (partidos en trozos si son largos). Se pegan en una conversacion con Claude, que devuelve el JSON de
+predicciones; luego `python reporter/save_claude.py preds.json` lo guarda como `claude_v1`.
+En Termux hay un boton de pantalla de inicio con Termux:Widget (ver `termux/README.md`).
+
 ## Siguiente paso
 Sustituir `baseline.py` por el agente con Claude (misma interfaz: resumen de la moneda -> `prob_up`, `invalidation`, `note`).
 

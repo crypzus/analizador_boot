@@ -446,7 +446,31 @@ def test_claude_daily_cap():
     print("OK claude: tope diario de llamadas")
 
 
+import export  # noqa: E402
+
+
+def test_export_two_messages_and_chunking():
+    text = "# Informe\nBTC\n\n## Noticias y alertas (24 h)\n- [HIGH] fuente: algo\n\n## Predicciones (x)\n- BTCUSDT: 45%"
+    tech, news = export.split_report(text)
+    assert "BTC" in tech and "BTCUSDT: 45%" in tech and "algo" not in tech
+    assert news.startswith("## Noticias") and "algo" in news and "45%" not in news
+    big = "\n".join(f"linea {i} " + "x" * 80 for i in range(200))
+    parts = export.chunks(big)
+    assert len(parts) > 1 and all(len(p) <= export.CHUNK for p in parts)
+    assert "\n".join(parts) == big
+
+    out = Path(tempfile.mkdtemp())
+    sent = []
+    res = export.export(out, send=lambda t: sent.append(t) or True, run_fn=lambda: _run(out))
+    assert res == {"sent": 2, "total": 2} and "DATOS TÉCNICOS" in sent[0] and "NOTICIAS" in sent[1]
+    assert all(len(t) <= 4000 for t in sent)
+    res = export.export(out, send=lambda t: True, run_fn=lambda: {"skipped": "lock"})
+    assert res["sent"] == 0 and "error" in res
+    print("OK export: dos mensajes, troceo y error si no hay corrida")
+
+
 if __name__ == "__main__":
+    test_export_two_messages_and_chunking()
     test_candle_start_aligned()
     test_parse_predictions()
     test_ask_claude_fake_client()
