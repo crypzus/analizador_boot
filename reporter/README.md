@@ -23,3 +23,19 @@ Las 4 monedas se mueven juntas: cuenta el numero de **corridas**, no de predicci
 
 ## Siguiente paso
 Sustituir `baseline.py` por el agente con Claude (misma interfaz: resumen de la moneda -> `prob_up`, `invalidation`, `note`).
+
+## Paso automatico con Claude (APAGADO por defecto)
+`claude_agent.py` envia el informe (tecnico + noticias) y `reglas.md` a la API de Claude, valida el JSON y guarda las
+predicciones como `claude_v1`, comparables con el predictor base. No se usa hasta que lo actives.
+- Instalar: `.\.venv\Scripts\python.exe -m pip install anthropic`
+- Clave: variable de entorno `ANTHROPIC_API_KEY` (nunca en el codigo ni en el chat).
+- Activar: `run.py --once --claude` o `REPORTER_USE_CLAUDE=1`.
+- Modelo: `claude-opus-5-5` (cambiar con `REPORTER_CLAUDE_MODEL`, por ejemplo `claude-sonnet-5-5` para gastar menos).
+- Tope de gasto: maximo 8 corridas con Claude cada 24 h (`REPORTER_CLAUDE_MAX_PER_DAY`).
+- Si la API falla o la respuesta no es valida, no se guarda nada y la corrida sigue. Las noticias se tratan como datos, no como ordenes.
+- Sin probar contra la API real (no hay clave todavia): la primera vez, correrlo con `--once --claude` y mirar la salida `[claude] ...`.
+
+## En un VPS (24/7)
+Linux + Python + `pip install requests pandas numpy anthropic`. Region fuera de EE. UU. (Binance bloquea esas IPs).
+Variables (`TELEGRAM_*`, `ANTHROPIC_API_KEY`) en un archivo solo legible por el usuario, cargado por el servicio.
+Lo mas robusto: un temporizador systemd que ejecute `reporter/run.py --once` cada 4 h, y el monitor como servicio aparte.

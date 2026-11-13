@@ -330,7 +330,104 @@ def test_save_claude_and_stats_by_method():
     print("OK claude manual: guarda sin duplicar, valida y separa estadisticas por metodo")
 
 
+import json  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+import claude_agent  # noqa: E402
+
+GOOD = {s: {"prob_up": 0.45, "invalidation": 1.0, "note": "razon"} for s in candles.PAIRS}
+
+
+def fake_client(text, stop="end_turn", sink=None):
+    def create(**kw):
+        if sink is not None:
+            sink.update(kw)
+        return SimpleNamespace(stop_reason=stop, content=[SimpleNamespace(type="text", text=text)])
+    return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create)))
+
+
+def test_parse_predictions():
+    ok = claude_agent.parse_predictions("```json\n" + json.dumps(GOOD) + "\n```")
+    assert set(ok) == set(candles.PAIRS) and ok["BTCUSDT"]["prob_up"] == 0.45
+    for bad in ("sin json", "{no es json}", json.dumps({"BTCUSDT": {"prob_up": 0.99, "invalidation": 1}}),
+                json.dumps({"XRPUSDT": GOOD["BTCUSDT"]}), json.dumps({"BTCUSDT": {"prob_up": "x", "invalidation": 1}})):
+        try:
+            claude_agent.parse_predictions(bad)
+            raise AssertionError("debio fallar: " + bad)
+        except ValueError:
+            pass
+    long_note = json.dumps({"BTCUSDT": {"prob_up": 0.5, "invalidation": 1, "note": "x" * 500}})
+    assert len(claude_agent.parse_predictions(long_note)["BTCUSDT"]["note"]) == 140
+    print("OK claude: valida y limpia el JSON de la respuesta")
+
+
+def test_ask_claude_fake_client():
+    sent = {}
+    res = claude_agent.ask_claude("INFORME X <noticias>", "REGLAS Y", client=fake_client(json.dumps(GOOD), sink=sent))
+    assert set(res) == set(candles.PAIRS) and sent["model"] == "claude-opus-5-5"
+    assert "REGLAS Y" in sent["system"] and "INFORME X" not in sent["system"]  # el informe va como dato del usuario
+    assert "<informe>" in sent["messages"][0]["content"]
+    for stop in ("refusal", "max_tokens"):
+        try:
+            claude_agent.ask_claude("i", "r", client=fake_client("{}", stop=stop))
+            raise AssertionError("debio fallar")
+        except RuntimeError:
+            pass
+    print("OK claude: llamada con cliente simulado (sin red)")
+
+
+def _run(out, **kw):
+    with contextlib.redirect_stdout(io.StringIO()):
+        return run.run_once(out, fetcher=lambda s: frames_for(100), monitor_db=out / "no.db", send=lambda t: True,
+                            resolver=lambda s, ts: None, **kw)
+
+
+def count_claude(out):
+    return sqlite3.connect(out / "journal.db").execute(
+        "SELECT COUNT(*) FROM predictions WHERE method='claude_v1'").fetchone()[0]
+
+
+def test_claude_off_by_default():
+    os.environ.pop("REPORTER_USE_CLAUDE", None)
+    out = Path(tempfile.mkdtemp())
+
+    def boom(*a, **k):
+        raise AssertionError("no debio llamarse")
+    res = _run(out, claude_ask=boom)
+    assert "claude" not in res and count_claude(out) == 0
+    print("OK claude: apagado por defecto")
+
+
+def test_claude_on_saves_and_errors_dont_break():
+    out = Path(tempfile.mkdtemp())
+    res = _run(out, use_claude=True, claude_ask=lambda rep, rules: claude_agent.parse_predictions(json.dumps(GOOD)))
+    assert res["claude"].startswith("guardado") and count_claude(out) == 4
+    out2 = Path(tempfile.mkdtemp())
+
+    def fail(rep, rules):
+        raise RuntimeError("api caida")
+    res2 = _run(out2, use_claude=True, claude_ask=fail)
+    assert res2["ok"] == candles.PAIRS and res2["claude"].startswith("error") and count_claude(out2) == 0
+    print("OK claude: guarda al activarlo; un fallo no rompe la corrida")
+
+
+def test_claude_daily_cap():
+    out = Path(tempfile.mkdtemp())
+    os.environ["REPORTER_CLAUDE_MAX_PER_DAY"] = "1"
+    try:
+        ask = lambda rep, rules: claude_agent.parse_predictions(json.dumps(GOOD))  # noqa: E731
+        assert _run(out, use_claude=True, claude_ask=ask)["claude"].startswith("guardado")
+        assert "tope diario" in _run(out, use_claude=True, claude_ask=ask)["claude"]
+    finally:
+        os.environ.pop("REPORTER_CLAUDE_MAX_PER_DAY")
+    print("OK claude: tope diario de llamadas")
+
+
 if __name__ == "__main__":
+    test_parse_predictions()
+    test_ask_claude_fake_client()
+    test_claude_off_by_default()
+    test_claude_on_saves_and_errors_dont_break()
+    test_claude_daily_cap()
     test_save_claude_and_stats_by_method()
     test_drop_unclosed()
     test_parse_ok()

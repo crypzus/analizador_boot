@@ -3,6 +3,7 @@
   python reporter/run.py --once     una corrida
   python reporter/run.py            bucle cada 4 h (Ctrl+C para parar)
   python reporter/run.py --stats    estadisticas del journal
+  python reporter/run.py --claude   ademas pide la prediccion a la API de Claude (apagado por defecto)
 Opcional: TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en variables de entorno.
 """
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import baseline  # noqa: E402
 import candles  # noqa: E402
+import claude_agent  # noqa: E402
 import journal  # noqa: E402
 import notify  # noqa: E402
 import report  # noqa: E402
@@ -69,7 +71,9 @@ def _write_stats(j: journal.Journal, out_dir: Path) -> None:
 
 
 def run_once(out_dir=OUT, fetcher=candles.fetch_all, monitor_db=MONITOR_DB, send=notify.send,
-             resolver=candles.fetch_price_at) -> dict:
+             resolver=candles.fetch_price_at, use_claude: bool | None = None,
+             claude_ask=None) -> dict:
+    """use_claude: None -> depende de REPORTER_USE_CLAUDE=1 (apagado por defecto)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     if not _take_lock(out_dir):
@@ -119,8 +123,12 @@ def run_once(out_dir=OUT, fetcher=candles.fetch_all, monitor_db=MONITOR_DB, send
 
         sent = send(_telegram_text(blocks, preds))
         j.end_run(run_id, True, f"fallidas: {failed}; telegram: {sent}")
+        result = {"ok": ok, "failed": failed, "telegram": sent}
+        if claude_agent.enabled() if use_claude is None else use_claude:
+            result["claude"] = claude_agent.run_step(out_dir, text, ask=claude_ask or claude_agent.ask_claude, send=send)
+            print(f"[claude] {result['claude']}")
         _write_stats(j, out_dir)
-        return {"ok": ok, "failed": failed, "telegram": sent}
+        return result
     finally:
         (out_dir / "run.lock").unlink(missing_ok=True)
 
@@ -129,6 +137,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--stats", action="store_true")
+    ap.add_argument("--claude", action="store_true", help="activa el paso automatico con la API de Claude")
     a = ap.parse_args()
     if a.stats:
         OUT.mkdir(parents=True, exist_ok=True)
@@ -136,7 +145,7 @@ def main() -> None:
         print((OUT / "stats.md").read_text(encoding="utf-8"))
         return
     while True:
-        print(run_once())
+        print(run_once(use_claude=True if a.claude else None))
         if a.once:
             return
         time.sleep(INTERVAL_S)
