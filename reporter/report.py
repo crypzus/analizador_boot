@@ -29,7 +29,7 @@ def news_context(db_path: str, hours: int = 24, limit: int = 12) -> list[str]:
                 "AND priority IN ('HIGH','MEDIUM') ORDER BY (priority='HIGH') DESC, seen DESC LIMIT ?",
                 (since, limit)).fetchall()
             alerts = db.execute(
-                "SELECT level, source, title FROM alerts WHERE ts>=? ORDER BY ts DESC LIMIT ?",
+                "SELECT level, source, title FROM alerts WHERE ts>=? AND level!='WARN' ORDER BY ts DESC LIMIT ?",
                 (since, limit)).fetchall()
         finally:
             db.close()

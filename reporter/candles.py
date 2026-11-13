@@ -57,11 +57,17 @@ def fetch_klines(symbol: str, interval: str, limit: int) -> pd.DataFrame:
     raise RuntimeError(f"no se pudieron bajar velas {symbol} {interval}: {last}")
 
 
-def fetch_price_at(symbol: str, ts_iso: str) -> float | None:
-    """Cierre de la vela 15m que termina en ts+24 h. None si aun no existe o la red falla (queda pendiente)."""
+def candle_start_ms(ts_iso: str) -> int:
+    """Apertura (ms) de la ultima vela 15m ya cerrada en ts+24 h. Las velas estan alineadas a :00/:15/:30/:45."""
     from datetime import datetime, timedelta, timezone
     target = datetime.strptime(ts_iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) + timedelta(hours=24)
-    start = int(target.timestamp() * 1000) - STEP_MS["15m"]
+    step = STEP_MS["15m"]
+    return int(target.timestamp() * 1000) // step * step - step
+
+
+def fetch_price_at(symbol: str, ts_iso: str) -> float | None:
+    """Cierre de la vela 15m que termina en ts+24 h. None si aun no existe o la red falla (queda pendiente)."""
+    start = candle_start_ms(ts_iso)
     for host in HOSTS:
         try:
             r = requests.get(f"{host}/api/v3/klines", timeout=15,
