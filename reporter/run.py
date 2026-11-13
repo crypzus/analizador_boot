@@ -127,6 +127,7 @@ def run_once(out_dir=OUT, fetcher=candles.fetch_all, monitor_db=MONITOR_DB, send
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # consola de Windows (cp1252) y emojis
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--stats", action="store_true")

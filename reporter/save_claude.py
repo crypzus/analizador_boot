@@ -45,6 +45,7 @@ def save_claude(preds: dict, out_dir=OUT, send=notify.send) -> dict:
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # consola de Windows (cp1252) y emojis
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
