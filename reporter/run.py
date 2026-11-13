@@ -20,6 +20,7 @@ import baseline  # noqa: E402
 import candles  # noqa: E402
 import claude_agent  # noqa: E402
 import journal  # noqa: E402
+import messages  # noqa: E402
 import notify  # noqa: E402
 import report  # noqa: E402
 
@@ -41,16 +42,8 @@ def _take_lock(out_dir: Path) -> bool:
         return False
 
 
-def _telegram_text(blocks: dict, preds: dict) -> str:
-    lines = ["Reporte de mercado (prob. de que suba en 24 h)"]
-    for sym in candles.PAIRS:
-        if sym in preds:
-            s, p = blocks[sym]["summary"], preds[sym]
-            lines.append(f"{sym}: {s['price']:.4f} ({s['chg_24h'] * 100:+.1f}% 24 h) -> sube {p['prob_up'] * 100:.0f}% | {p['note']}")
-        else:
-            lines.append(f"{sym}: sin datos")
-    lines.append(report.DISCLAIMER)
-    return "\n".join(lines)
+def _telegram_text(blocks: dict, preds: dict, ts: str = "") -> str:
+    return messages.technical_message(candles.PAIRS, blocks, preds, ts or journal.utcnow().replace("T", " ")[:16] + " UTC")
 
 
 def _write_stats(j: journal.Journal, out_dir: Path) -> None:

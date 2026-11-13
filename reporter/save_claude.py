@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import baseline  # noqa: E402
 import journal  # noqa: E402
+import messages  # noqa: E402
 import notify  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "out"
@@ -29,16 +30,17 @@ def save_claude(preds: dict, out_dir=OUT, send=notify.send) -> dict:
             raise ValueError(f"{sym} no tiene datos en la ultima corrida")
         if not 0.05 <= float(p["prob_up"]) <= 0.95:
             raise ValueError(f"{sym}: prob_up fuera de 0.05-0.95")
-    saved, lines = [], ["Prediccion de Claude (prob. de que suba en 24 h)"]
+    saved, rows = [], []
     for sym, p in preds.items():
         b = base[sym]
         if j.has_prediction(b["run_id"], sym, METHOD):
             continue  # no duplicar en la misma corrida
         j.save_prediction(b["run_id"], sym, b["ts"], b["price"], float(p["prob_up"]), METHOD, b["ref_mom"])
         saved.append(sym)
-        lines.append(f"{sym}: {b['price']:.4f} -> sube {float(p['prob_up']) * 100:.0f}% "
-                     f"(base {b['prob_up'] * 100:.0f}%) | invalida {float(p['invalidation']):.4f} | {p['note']}")
-    sent = send("\n".join(lines)) if saved else False
+        rows.append({"symbol": sym, "price": b["price"], "prob_up": float(p["prob_up"]), "base_prob": b["prob_up"],
+                     "invalidation": float(p["invalidation"]), "note": p["note"]})
+    ts = base[next(iter(base))]["ts"].replace("T", " ")[:16] + " UTC"
+    sent = send(messages.claude_message(rows, ts)) if saved else False
     return {"saved": saved, "telegram": sent}
 
 

@@ -249,7 +249,7 @@ def test_run_once_one_pair_fails():
                            resolver=lambda s, ts: None)
     assert res["failed"] == ["ETHUSDT"] and res["ok"] == ["BTCUSDT", "SOLUSDT", "ADAUSDT"]
     n = sqlite3.connect(out / "journal.db").execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
-    assert n == 3 and "ETHUSDT: sin datos" in sent[0] and not (out / "run.lock").exists()
+    assert n == 3 and "ETHUSDT: sin datos" in sent[0] and "REPORTE TÉCNICO" in sent[0] and not (out / "run.lock").exists()
     assert "no es asesoria" in (out / "report.md").read_text(encoding="utf-8")
     print("OK corrida: una moneda falla, las otras siguen, bloqueo liberado")
 
@@ -343,6 +343,7 @@ def test_save_claude_and_stats_by_method():
 import json  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 import claude_agent  # noqa: E402
+import messages  # noqa: E402
 
 GOOD = {s: {"prob_up": 0.45, "invalidation": 1.0, "note": "razon"} for s in candles.PAIRS}
 
@@ -396,6 +397,19 @@ def count_claude(out):
         "SELECT COUNT(*) FROM predictions WHERE method='claude_v1'").fetchone()[0]
 
 
+def test_messages_format():
+    blocks = {"BTCUSDT": {"summary": {"price": 69013.1, "trend_4h": "down", "rsi_4h": 25.0, "chg_24h": -0.0367}}}
+    preds = {"BTCUSDT": {"prob_up": 0.45, "invalidation": 71000.0, "note": "x"}}
+    t = messages.technical_message(["BTCUSDT", "ETHUSDT"], blocks, preds, "2026-11-13 15:13 UTC")
+    assert "📊 REPORTE TÉCNICO" in t and "69,013.10" in t and "🔻 bajista" in t and "🧊 sobreventa" in t
+    assert "45% 🔴" in t and "71,000.00" in t and "⚠️ ETHUSDT: sin datos" in t
+    c = messages.claude_message([{"symbol": "BTCUSDT", "price": 69013.1, "prob_up": 0.46, "base_prob": 0.45,
+                                  "invalidation": 71000.0, "note": "rebote tecnico"}], "2026-11-13 15:13 UTC")
+    assert "🤖 REPORTE CLAUDE" in c and "Claude: 46% 🟡" in c and "Técnico: 45% 🔴" in c and "💬 rebote tecnico" in c
+    assert len(t) < 4000 and len(c) < 4000
+    print("OK mensajes: reporte tecnico y reporte Claude con emojis")
+
+
 def test_claude_off_by_default():
     os.environ.pop("REPORTER_USE_CLAUDE", None)
     out = Path(tempfile.mkdtemp())
@@ -436,6 +450,7 @@ if __name__ == "__main__":
     test_candle_start_aligned()
     test_parse_predictions()
     test_ask_claude_fake_client()
+    test_messages_format()
     test_claude_off_by_default()
     test_claude_on_saves_and_errors_dont_break()
     test_claude_daily_cap()

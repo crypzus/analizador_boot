@@ -34,5 +34,5 @@ Las noticias repetidas entre medios se agrupan: se avisa una vez, y otra cuando 
 Las reglas se afinan con el uso (ya se corrigio: SEC no cripto -> LOW, tramites rutinarios de la Fed -> LOW, incidentes de seguridad de Binance -> HIGH).
 
 ## Opcional
-- Avisos a Telegram: define `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` (tu propio bot de @BotFather).
+- Avisos a Telegram: **apagados por defecto**. Para activarlos define `MONITOR_TELEGRAM=1`, `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` (tu propio bot de @BotFather).
 - Un paso de IA (Claude) para resumir las alertas necesitaria una clave de la API de Claude; no esta incluido.

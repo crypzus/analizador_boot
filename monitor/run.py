@@ -6,7 +6,7 @@ Uso (desde trading-bot):
   .\.venv\Scripts\python.exe monitor\run.py                 # bucle cada 8 minutos
   .\.venv\Scripts\python.exe monitor\run.py --digest        # resumen de las ultimas 24 h en out\digest.md
 Salidas: monitor\out\monitor.db (SQLite), alerts.md, events.jsonl
-Opcional: TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en variables de entorno para avisos a Telegram.
+Telegram: APAGADO por defecto (las noticias llegan en ingles). Para activarlo: MONITOR_TELEGRAM=1 mas TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID.
 """
 from __future__ import annotations
 
@@ -54,13 +54,16 @@ def say(msg: str) -> None:
 
 
 def telegram(text: str) -> None:
+    """Apagado por defecto (las noticias llegan en ingles): solo si MONITOR_TELEGRAM=1."""
+    if os.environ.get("MONITOR_TELEGRAM") != "1":
+        return
     tok, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     if not tok or not chat:
         return
     try:
         requests.post(f"https://api.telegram.org/bot{tok}/sendMessage", data={"chat_id": chat, "text": text[:3900]}, timeout=15)
-    except Exception as e:  # el aviso nunca debe tumbar el monitor
-        say(f"  (telegram fallo: {e})")
+    except Exception as e:  # el aviso nunca debe tumbar el monitor; no mostrar el mensaje (puede incluir el token en la URL)
+        say(f"  (telegram fallo: {type(e).__name__})")
 
 
 def emit(st: Store, level: str, source: str, title: str, url: str = "", note: str = "") -> None:
