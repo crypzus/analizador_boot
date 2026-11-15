@@ -13,15 +13,16 @@ import pandas as pd
 MIN_TRADES, MIN_Q_TRADES, Q_SHARE = 100, 5, 2 / 3
 
 
-def boot_ci(df: pd.DataFrame, col: str = "pnl", n: int = 2000, seed: int = 1) -> tuple[float, float]:
-    """IC 95 % de la media de `col` remuestreando MESES completos (con reemplazo)."""
+def boot_ci(df: pd.DataFrame, col: str = "pnl", n: int = 2000, seed: int = 1, level: float = 95.0) -> tuple[float, float]:
+    """IC (`level` %, por defecto 95) de la media de `col` remuestreando MESES completos (con reemplazo)."""
     if df.empty or df["month"].nunique() < 3:
         return float("nan"), float("nan")
     g = df.groupby("month")[col].agg(["sum", "count"])
     s, c = g["sum"].to_numpy(), g["count"].to_numpy()
     idx = np.random.default_rng(seed).integers(0, len(g), (n, len(g)))
     means = s[idx].sum(axis=1) / c[idx].sum(axis=1)
-    return float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+    tail = (100.0 - level) / 2
+    return float(np.percentile(means, tail)), float(np.percentile(means, 100 - tail))
 
 
 def summarize(df: pd.DataFrame) -> dict:
