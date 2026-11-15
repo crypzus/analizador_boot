@@ -559,7 +559,69 @@ def test_export_two_messages_and_chunking():
     print("OK export: dos mensajes, troceo y error si no hay corrida")
 
 
+import math  # noqa: E402
+import volatility  # noqa: E402
+
+
+def _hourly(n, rng_pct=0.01, start="2024-01-01"):
+    t = pd.date_range(start, periods=n, freq="h", tz="UTC")
+    return pd.DataFrame({"open_time": t, "open": 100.0, "high": 100.0 * (1 + rng_pct), "low": 100.0, "close": 100.0,
+                         "volume": 1.0})
+
+
+MODEL = {"coins": {s: {"coef": [0.0, 0.5, 0.3, 0.2], "rmse_log": 0.3} for s in ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT"]}}
+
+
+def test_volatility_forecast_formula_and_guards():
+    df = _hourly(800)
+    f = volatility.forecast(df, MODEL, "BTCUSDT")
+    r = math.log(1.01)  # rango constante: las tres variables valen lo mismo y los pesos suman 1
+    assert abs(f["r"] - r) < 1e-12 and abs(f["range_pct"] - 1.0) < 1e-9 and f["level"] == "normal"
+    assert abs(f["lo_pct"] - (math.exp(r / math.exp(0.3)) - 1) * 100) < 1e-9 and f["hi_pct"] > f["range_pct"] > f["lo_pct"]
+    assert abs(f["stop_pct"] - 0.3) < 1e-9 and f["as_of"] == "2024-02-03T08:00:00Z"
+    big = _hourly(800)
+    big.loc[776:, "high"] = 100 * 1.05  # ultimas 24 h mucho mas amplias que su media de 30 dias
+    assert volatility.forecast(big, MODEL, "BTCUSDT")["level"] in ("alto", "normal")
+    assert volatility.forecast(_hourly(100), MODEL, "BTCUSDT") is None  # historial corto
+    assert volatility.forecast(df, None, "BTCUSDT") is None and volatility.forecast(df, MODEL, "XRPUSDT") is None
+    assert volatility.forecast(None, MODEL, "BTCUSDT") is None
+    assert volatility.load_model(Path(tempfile.gettempdir()) / "no_existe_xyz.json") is None
+    real = volatility.load_model()
+    assert real and set(real["coins"]) == {"BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT"}
+    print("OK volatilidad: formula, banda, etiqueta, guardas y modelo real cargable")
+
+
+def test_vol_journal_and_run_once():
+    out = Path(tempfile.mkdtemp())
+    frames = lambda s: {**frames_for(100), "1h_long": _hourly(800)}  # noqa: E731
+    sent = []
+    kw = dict(fetcher=frames, monitor_db=out / "no.db", send=lambda t: sent.append(t) or True,
+              resolver=lambda s, ts: None, vol_model=MODEL)
+    with contextlib.redirect_stdout(io.StringIO()):
+        run.run_once(out, vol_resolver=lambda s, ts: None, **kw)
+    j = journal.Journal(str(out / "journal.db"))
+    assert j.db.execute("SELECT COUNT(*) FROM vol_forecasts").fetchone()[0] == 4
+    assert "volatilidad esperada 24 h" in (out / "report.md").read_text(encoding="utf-8")
+    assert "Rango esperado 24 h" in sent[0] and "Stop sugerido" in sent[0]
+    actual = _hourly(24, rng_pct=0.02)  # rango real = ln(1,02)
+    with contextlib.redirect_stdout(io.StringIO()):
+        run.run_once(out, vol_resolver=lambda s, ts: actual, **kw)
+    vs = j.vol_stats()
+    assert vs["n"] == 4 and vs["rmse_model"] > 0 and 0 <= vs["inside"] <= 1
+    assert "Pronostico de volatilidad" in (out / "stats.md").read_text(encoding="utf-8")
+    # sin modelo todo sigue igual y sin linea de volatilidad
+    out2 = Path(tempfile.mkdtemp())
+    sent2 = []
+    with contextlib.redirect_stdout(io.StringIO()):
+        run.run_once(out2, fetcher=lambda s: frames_for(100), monitor_db=out2 / "no.db",
+                     send=lambda t: sent2.append(t) or True, resolver=lambda s, ts: None, vol_model=None)
+    assert "Rango esperado" not in sent2[0] and "BTCUSDT" in sent2[0]
+    print("OK volatilidad: se guarda, se muestra, se evalua a 24 h y es opcional")
+
+
 if __name__ == "__main__":
+    test_volatility_forecast_formula_and_guards()
+    test_vol_journal_and_run_once()
     test_setup_parse_and_plan()
     test_setup_simulation()
     test_setup_journal_save_claude_and_run()

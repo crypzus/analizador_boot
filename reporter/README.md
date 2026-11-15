@@ -35,6 +35,13 @@ cierre forzado a las 72 h, comision 0,05 % por lado. Si una vela toca stop y obj
 (conservador). El resultado sale en `out/stats.md` (seccion "Setups de estudio"): operados, ganadores, stops, TP2, P&L.
 Reglas completas en el docstring de `setups.py`.
 
+## Pronostico de volatilidad (validado en `research/`)
+Cada corrida estima el rango de las proximas 24 h de cada moneda (`volatility.py` + `vol_model.json`) y lo muestra en el informe y
+en el mensaje de Telegram junto con un stop sugerido (30 % del rango esperado, heuristica). Es cuanto se mueve, no hacia donde.
+El pronostico se guarda en el journal y a las 24 h se compara con el rango real (seccion "Pronostico de volatilidad" de `stats.md`).
+Necesita 800 velas de 1h por moneda; si falta el modelo o los datos, el reporter funciona igual sin esa linea.
+Reentrenar con datos nuevos: `python research/fit_vol_model.py` (solo escribe el modelo si pasa el criterio de validacion).
+
 ## Siguiente paso
 Sustituir `baseline.py` por el agente con Claude (misma interfaz: resumen de la moneda -> `prob_up`, `invalidation`, `note`).
 

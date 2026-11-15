@@ -22,6 +22,17 @@ def rsi_label(r: float) -> str:
     return "🔥 sobrecompra" if r > 70 else "🧊 sobreventa" if r < 30 else "neutro"
 
 
+VOL_LEVEL = {"alto": "⚡ alto", "bajo": "😴 bajo", "normal": "〰️ normal"}
+
+
+def vol_lines(v: dict | None) -> list[str]:
+    """Rango esperado de 24 h (volatilidad, no direccion) y stop sugerido; vacio si no hay pronostico."""
+    if not v:
+        return []
+    return [f"   📏 Rango esperado 24 h: ~{v['range_pct']:.1f}% ({v['lo_pct']:.1f}–{v['hi_pct']:.1f}%) · {VOL_LEVEL.get(v['level'], v['level'])}",
+            f"   🧭 Stop sugerido: ~{v['stop_pct']:.1f}% del precio"]
+
+
 def technical_message(symbols: list[str], blocks: dict, preds: dict, ts: str) -> str:
     """blocks[sym]['summary'] y preds[sym] vienen de report.coin_block y baseline.predict."""
     lines = [f"📊 REPORTE TÉCNICO · {ts}", "Regla simple: tendencia 4h + RSI (sin IA, sin noticias)", ""]
@@ -34,6 +45,7 @@ def technical_message(symbols: list[str], blocks: dict, preds: dict, ts: str) ->
         lines += [
             f"🪙 {sym}  {fmt_price(s['price'])}  {arrow} {s['chg_24h'] * 100:+.1f}% (24 h)",
             f"   📈 Tendencia 4h: {TREND.get(s['trend_4h'], s['trend_4h'])} · RSI {s['rsi_4h']:.0f} {rsi_label(s['rsi_4h'])}",
+            *vol_lines(s.get("vol")),
             f"   🎯 Prob. de subir en 24 h: {p['prob_up'] * 100:.0f}% {prob_dot(p['prob_up'])}",
             f"   🛡️ Se invalida si cruza {fmt_price(p['invalidation'])}",
             "",

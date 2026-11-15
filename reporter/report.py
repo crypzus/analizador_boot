@@ -48,7 +48,7 @@ def btc_correlation(frames_1h: dict[str, pd.DataFrame], window: int = 72) -> dic
     return {s: round(float(r.corr(ret["BTCUSDT"])), 2) for s, r in ret.items() if s != "BTCUSDT"}
 
 
-def coin_block(symbol: str, frames: dict[str, pd.DataFrame]) -> dict:
+def coin_block(symbol: str, frames: dict[str, pd.DataFrame], vol: dict | None = None) -> dict:
     a = {iv: indicators.analyze(frames[iv]) for iv in ("4h", "1h", "15m")}
     lv = indicators.key_levels(frames["4h"])
     h1 = frames["1h"]["close"]
@@ -57,12 +57,16 @@ def coin_block(symbol: str, frames: dict[str, pd.DataFrame]) -> dict:
     summary = {"price": price, "trend_4h": a["4h"]["trend"], "rsi_4h": a["4h"]["rsi14"],
                "atr_4h": a["4h"]["atr14"], "chg_24h": chg_24h,
                "support": lv["supports"][0] if lv["supports"] else None,
-               "resistance": lv["resistances"][0] if lv["resistances"] else None}
+               "resistance": lv["resistances"][0] if lv["resistances"] else None, "vol": vol}
     lines = [f"## {symbol}  precio {price:.4f}  (24 h: {chg_24h * 100:+.2f}%)"]
     for iv in ("4h", "1h", "15m"):
         x = a[iv]
         lines.append(f"- {iv}: tendencia {x['trend']}, RSI {x['rsi14']:.0f}, ATR {x['atr14']:.4f}, "
                      f"vol rel {x['rel_volume']:.2f}, rango {x['low']:.4f}-{x['high']:.4f}")
+    if vol:
+        lines.append(f"- volatilidad esperada 24 h: rango ~{vol['range_pct']:.1f}% (banda {vol['lo_pct']:.1f}-{vol['hi_pct']:.1f}%), "
+                     f"nivel {vol['level']} (ultimas 24 h: {vol['r1_pct']:.1f}%); stop sugerido ~{vol['stop_pct']:.1f}% del precio "
+                     "(heuristica: 30 % del rango esperado). Es un pronostico de cuanto se mueve, no de hacia donde")
     lines.append(f"- soportes 4h: {lv['supports'] or 'ninguno'} | resistencias 4h: {lv['resistances'] or 'ninguna'}")
     return {"text": "\n".join(lines), "summary": summary}
 

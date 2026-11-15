@@ -38,7 +38,9 @@ Un precio concreto que, de cruzarse, anula el escenario: el soporte mas cercano 
 ## 6. Setups de operacion (estudio en papel: 100 $ por moneda, apalancamiento 5x)
 - **Solo a favor de la tendencia 4h:** short si es bajista, long si es alcista. Si es lateral, sin setup.
 - **Entrada limite en el rebote, no en el extremo:** hacia el nivel roto (soporte roto que ahora es resistencia, o al reves) o hacia un maximo/minimo reciente de 15m. Nunca perseguir el precio actual.
-- **Stop:** 1 a 1.5 ATR de 4h mas alla de la zona de entrada, fuera del nivel que invalida la idea.
+- **Volatilidad esperada (validada):** si el informe trae "volatilidad esperada 24 h", USALA para dimensionar. Es un pronostico de cuanto se mueve (rango de 24 h), validado fuera de muestra; no dice hacia donde. Un rango esperado "alto" pide stops mas amplios y menos operaciones; "bajo", lo contrario.
+- **Stop:** heuristica de ~30 % del rango esperado de 24 h (es el "stop sugerido" del informe), siempre fuera del nivel que invalida la idea. Si no hay pronostico, 1 a 1.5 ATR de 4h mas alla de la zona de entrada.
+- **Costos:** con comision de 0,1 % ida y vuelta (5x = 0,5 % del margen), un stop a menos de ~0,8 % del precio se lo comen las comisiones: en ese caso no hay setup.
 - **TP1** en el extremo reciente o nivel estructural; **TP2** una extension mas alla (nivel redondo o 1-1.5 ATR de 4h). Se cierra la mitad en cada uno.
 - Orden estricto: short `tp2 < tp1 < entry < stop`; long `stop < entry < tp1 < tp2`. Un setup incoherente se descarta.
 - El setup caduca si no se llena en 24 h. Las monedas estan correlacionadas (~0.9): son una sola apuesta, no cuatro.

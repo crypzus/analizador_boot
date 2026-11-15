@@ -19,13 +19,16 @@ M15 = pd.Timedelta(minutes=15)
 FEATS = ["lr1", "lr7", "lr30"]
 
 
-def samples(df: pd.DataFrame) -> pd.DataFrame:
-    """Una fila cada 4 h (instantes con minuto 0 y hora multiplo de 4). Las variables solo usan velas ya cerradas."""
+def samples(df: pd.DataFrame, minutes: int = 15) -> pd.DataFrame:
+    """Una fila cada 4 h (instantes con minuto 0 y hora multiplo de 4). Las variables solo usan velas ya cerradas.
+    `minutes` = duracion de cada vela (15 o 60): las ventanas son 24 h, 7 dias y 30 dias."""
+    bph = 60 // minutes
+    w1, w7, w30 = 24 * bph, 168 * bph, 720 * bph
     d = df.reset_index(drop=True)
-    r1 = np.log(d["high"].rolling(96).max() / d["low"].rolling(96).min())
-    end = d["open_time"] + M15
-    s = pd.DataFrame({"end": end, "r1": r1, "r7": r1.rolling(672).mean(), "r30": r1.rolling(2880).mean(),
-                      "y": r1.shift(-96), "target_end": end.shift(-96)})
+    r1 = np.log(d["high"].rolling(w1).max() / d["low"].rolling(w1).min())
+    end = d["open_time"] + pd.Timedelta(minutes=minutes)
+    s = pd.DataFrame({"end": end, "r1": r1, "r7": r1.rolling(w7).mean(), "r30": r1.rolling(w30).mean(),
+                      "y": r1.shift(-w1), "target_end": end.shift(-w1)})
     s = s[(end.dt.minute == 0) & (end.dt.hour % 4 == 0)].dropna()
     s = s[(s[["r1", "r7", "r30", "y"]] > 0).all(axis=1)].copy()
     for c in ("r1", "r7", "r30"):

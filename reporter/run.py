@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -24,6 +25,7 @@ import messages  # noqa: E402
 import notify  # noqa: E402
 import report  # noqa: E402
 import setups  # noqa: E402
+import volatility  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = Path(__file__).resolve().parent / "out"
@@ -68,6 +70,14 @@ def _write_stats(j: journal.Journal, out_dir: Path) -> None:
             rows.append(f"| {k} | {v['n']} | {v['active']} | {v['no_fill']} | {v['traded']} | {v['wins']} | {v['stops']} | "
                         f"{v['tp2']} | {v['total']:+.2f} | {f(v['avg'])} |")
         rows.append("Los setups de varias monedas son casi la misma apuesta (correlacion ~0.9): no los cuentes como independientes.")
+    vs = j.vol_stats()
+    if vs["n"]:
+        fx = lambda x: f"x{math.exp(x):.2f}"  # noqa: E731
+        rows += ["", "## Pronostico de volatilidad (en vivo, rango de 24 h)", "",
+                 "| Evaluados | Error tipico modelo | Persistencia | Media 30 d | Real dentro de la banda | Sesgo (log) |",
+                 "|---|---|---|---|---|---|",
+                 f"| {vs['n']} | {fx(vs['rmse_model'])} | {fx(vs['rmse_pers'])} | {fx(vs['rmse_m30'])} | "
+                 f"{vs['inside'] * 100:.0f} % | {vs['bias']:+.2f} |"]
     rows += ["", f"Corridas completadas: {g['n_runs']} (fallidas/sin terminar: {g['n_failed_runs']}). "
                  "Se necesitan >=100 evaluadas por moneda antes de concluir nada."]
     (out_dir / "stats.md").write_text("\n".join(rows), encoding="utf-8")
@@ -83,10 +93,24 @@ def _evaluate_setups(j: journal.Journal, setup_fetch) -> None:
             print(f"[setup {st['symbol']}] sin evaluar: {type(e).__name__}: {e}")
 
 
+def _resolve_vol(j: journal.Journal, vol_resolver, now: str) -> None:
+    """Evalua los pronosticos de volatilidad con >= 24 h: rango real = ln(max alto / min bajo) de esas 24 h."""
+    import math
+    for p in j.pending_vol(now):
+        try:
+            df = vol_resolver(p["symbol"], p["as_of"])
+            if df is not None:
+                j.resolve_vol(p["id"], math.log(df["high"].max() / df["low"].min()), now)
+        except Exception as e:  # noqa: BLE001  queda pendiente para la proxima corrida
+            print(f"[vol {p['symbol']}] sin evaluar: {type(e).__name__}: {e}")
+
+
 def run_once(out_dir=OUT, fetcher=candles.fetch_all, monitor_db=MONITOR_DB, send=notify.send,
              resolver=candles.fetch_price_at, use_claude: bool | None = None,
-             claude_ask=None, setup_fetch=candles.fetch_candles_since) -> dict:
-    """use_claude: None -> depende de REPORTER_USE_CLAUDE=1 (apagado por defecto)."""
+             claude_ask=None, setup_fetch=candles.fetch_candles_since, vol_model="auto",
+             vol_resolver=candles.fetch_hourly_after) -> dict:
+    """use_claude: None -> depende de REPORTER_USE_CLAUDE=1 (apagado por defecto).
+    vol_model: "auto" carga reporter/vol_model.json; None desactiva el pronostico de volatilidad."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     if not _take_lock(out_dir):
@@ -102,13 +126,18 @@ def run_once(out_dir=OUT, fetcher=candles.fetch_all, monitor_db=MONITOR_DB, send
             if price is not None:
                 j.resolve(p["id"], price, ts)
         _evaluate_setups(j, setup_fetch)
+        _resolve_vol(j, vol_resolver, ts)
+        model = volatility.load_model() if vol_model == "auto" else vol_model
 
         blocks, frames_1h, failed = {}, {}, []
         for sym in candles.PAIRS:
             try:
                 frames = fetcher(sym)
-                blocks[sym] = report.coin_block(sym, frames)
+                vf = volatility.forecast(frames.get("1h_long"), model, sym)
+                blocks[sym] = report.coin_block(sym, frames, vf)
                 frames_1h[sym] = frames["1h"]
+                if vf:
+                    j.save_vol_forecast(run_id, sym, vf)
             except Exception as e:  # una moneda que falla no frena a las demas
                 print(f"[{sym}] sin datos: {type(e).__name__}: {e}")
                 blocks[sym] = None

@@ -109,5 +109,31 @@ def fetch_candles_since(symbol: str, created_ts: str, limit: int = 500) -> pd.Da
     raise RuntimeError(f"no se pudieron bajar velas {symbol} 15m: {last}")
 
 
+def fetch_hourly_after(symbol: str, as_of_iso: str) -> pd.DataFrame | None:
+    """Las 24 velas de 1h cerradas que empiezan en `as_of_iso` (para evaluar un pronostico de volatilidad).
+    None si aun no estan todas cerradas o la red falla (queda pendiente)."""
+    from datetime import datetime, timezone
+    start = int(datetime.strptime(as_of_iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() * 1000)
+    for host in HOSTS:
+        try:
+            r = requests.get(f"{host}/api/v3/klines", timeout=15,
+                             params={"symbol": symbol, "interval": "1h", "startTime": start, "limit": 24})
+            if r.status_code == 451:
+                continue
+            r.raise_for_status()
+            raw = drop_unclosed(r.json())
+            if len(raw) != 24 or int(raw[0][0]) != start:
+                return None
+            return parse_klines(raw, "1h")
+        except (requests.RequestException, ValueError, IndexError):
+            continue
+    return None
+
+
 def fetch_all(symbol: str) -> dict[str, pd.DataFrame]:
-    return {iv: fetch_klines(symbol, iv, n) for iv, n in WINDOWS.items()}
+    frames = {iv: fetch_klines(symbol, iv, n) for iv, n in WINDOWS.items()}
+    try:  # historial largo de 1h solo para el pronostico de volatilidad; si falla, el reporter sigue sin el
+        frames["1h_long"] = fetch_klines(symbol, "1h", 800)
+    except RuntimeError as e:
+        print(f"[{symbol}] sin historial largo para volatilidad: {e}")
+    return frames

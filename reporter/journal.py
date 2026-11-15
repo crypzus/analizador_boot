@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS predictions(
   ref50 REAL, ref_mom REAL, resolved_ts TEXT, price_24h REAL, outcome INTEGER,
   brier REAL, brier_ref50 REAL, brier_mom REAL);
 CREATE INDEX IF NOT EXISTS ix_pred_open ON predictions(resolved_ts, ts);
+CREATE TABLE IF NOT EXISTS vol_forecasts(
+  id INTEGER PRIMARY KEY, run_id INTEGER, symbol TEXT, as_of TEXT, r_pred REAL, r_lo REAL, r_hi REAL,
+  r1 REAL, r30 REAL, resolved_ts TEXT, r_actual REAL);
 CREATE TABLE IF NOT EXISTS setups(
   id INTEGER PRIMARY KEY, run_id INTEGER, symbol TEXT, created_ts TEXT, side TEXT,
   entry REAL, stop REAL, tp1 REAL, tp2 REAL, margin REAL, leverage REAL,
@@ -79,6 +82,37 @@ class Journal:
     def has_prediction(self, run_id: int, symbol: str, method: str) -> bool:
         return self.db.execute("SELECT 1 FROM predictions WHERE run_id=? AND symbol=? AND method=?",
                                (run_id, symbol, method)).fetchone() is not None
+
+    def save_vol_forecast(self, run_id: int, symbol: str, f: dict) -> int:
+        cur = self.db.execute("INSERT INTO vol_forecasts(run_id,symbol,as_of,r_pred,r_lo,r_hi,r1,r30) VALUES(?,?,?,?,?,?,?,?)",
+                              (run_id, symbol, f["as_of"], f["r"], f["r_lo"], f["r_hi"], f["r1"], f["r30"]))
+        self.db.commit()
+        return cur.lastrowid
+
+    def pending_vol(self, now: str) -> list[dict]:
+        cutoff = (datetime.strptime(now, FMT) - timedelta(hours=24)).strftime(FMT)
+        rows = self.db.execute("SELECT id, symbol, as_of FROM vol_forecasts WHERE resolved_ts IS NULL AND as_of<=? "
+                               "ORDER BY as_of", (cutoff,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def resolve_vol(self, fid: int, r_actual: float, now: str | None = None) -> None:
+        self.db.execute("UPDATE vol_forecasts SET resolved_ts=?, r_actual=? WHERE id=?", (now or utcnow(), r_actual, fid))
+        self.db.commit()
+
+    def vol_stats(self) -> dict:
+        """Errores en logs del pronostico y de dos referencias (rango de ayer y media de 30 dias), y % dentro de la banda."""
+        import math
+        rows = self.db.execute("SELECT r_pred, r_lo, r_hi, r1, r30, r_actual FROM vol_forecasts WHERE r_actual>0").fetchall()
+        n = len(rows)
+        if not n:
+            return {"n": 0}
+        sq = lambda a, b: (math.log(a) - math.log(b)) ** 2  # noqa: E731
+        return {"n": n,
+                "rmse_model": math.sqrt(sum(sq(r["r_pred"], r["r_actual"]) for r in rows) / n),
+                "rmse_pers": math.sqrt(sum(sq(r["r1"], r["r_actual"]) for r in rows) / n),
+                "rmse_m30": math.sqrt(sum(sq(r["r30"], r["r_actual"]) for r in rows) / n),
+                "inside": sum(r["r_lo"] <= r["r_actual"] <= r["r_hi"] for r in rows) / n,
+                "bias": sum(math.log(r["r_actual"]) - math.log(r["r_pred"]) for r in rows) / n}
 
     def save_setup(self, run_id: int, symbol: str, created_ts: str, s: dict,
                    margin: float = 100.0, leverage: float = 5) -> int:
