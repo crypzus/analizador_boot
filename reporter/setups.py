@@ -54,13 +54,15 @@ def _ts(t) -> str:
 
 
 def simulate(s: dict, df: pd.DataFrame, margin: float = MARGIN, leverage: float = LEVERAGE,
-             fee: float = FEE) -> dict:
+             fee: float = FEE, entry_hours: float = ENTRY_HOURS, hold_hours: float = HOLD_HOURS) -> dict:
     """Recorre las velas 15m CERRADAS posteriores a `created_ts`. Devuelve
-    {status: waiting|open|closed, outcome, filled_ts, closed_ts, pnl}. Sin estado: se puede repetir en cada corrida."""
+    {status: waiting|open|closed, outcome, filled_ts, closed_ts, pnl}. Sin estado: se puede repetir en cada corrida.
+    `entry_hours` (plazo para llenar la orden) y `hold_hours` (cierre forzado) se pueden acortar para pruebas intradia."""
     notional = margin * leverage
     short = s["side"] == "short"
     created = pd.Timestamp(datetime.strptime(s["created_ts"], FMT).replace(tzinfo=timezone.utc))
-    entry_deadline = created + timedelta(hours=ENTRY_HOURS)
+    entry_deadline = created + timedelta(hours=entry_hours)
+    hold = timedelta(hours=hold_hours)
 
     def hit_stop(c) -> bool:
         return c.high >= s["stop"] if short else c.low <= s["stop"]
@@ -94,7 +96,7 @@ def simulate(s: dict, df: pd.DataFrame, margin: float = MARGIN, leverage: float 
                 return done("stop", t, s["stop"])
             prev_close = c.close
             continue
-        if t >= filled_at + timedelta(hours=HOLD_HOURS):
+        if t >= filled_at + hold:
             return done("tp1_timeout" if tp1_hit else "timeout", t, prev_close)
         if hit_stop(c):
             return done("tp1_stop" if tp1_hit else "stop", t, s["stop"])
@@ -110,6 +112,6 @@ def simulate(s: dict, df: pd.DataFrame, margin: float = MARGIN, leverage: float 
         if last_end is not None and last_end >= entry_deadline:
             return done("no_fill", entry_deadline)
         return {"status": "waiting", "outcome": None, "filled_ts": None, "closed_ts": None, "pnl": None}
-    if last_end >= filled_at + timedelta(hours=HOLD_HOURS):
+    if last_end >= filled_at + hold:
         return done("tp1_timeout" if tp1_hit else "timeout", last_end, prev_close)
     return {"status": "open", "outcome": None, "filled_ts": _ts(filled_at), "closed_ts": None, "pnl": None}

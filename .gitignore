@@ -12,6 +12,8 @@ __pycache__/
 # salidas locales de monitor y reporter
 monitor/out/
 reporter/out/
+research/data/
+research/out/
 *.db
 *.lock
 *.jsonl
