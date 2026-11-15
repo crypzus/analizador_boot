@@ -23,6 +23,7 @@ import journal  # noqa: E402
 import messages  # noqa: E402
 import notify  # noqa: E402
 import report  # noqa: E402
+import setups  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = Path(__file__).resolve().parent / "out"
@@ -58,14 +59,33 @@ def _write_stats(j: journal.Journal, out_dir: Path) -> None:
         for k, v in st.items():
             rows.append(f"| {k} | {v['n_resolved']} | {f(v['brier'])} | {f(v['brier_ref50'])} | {f(v['brier_mom'])} | "
                         f"{f(v['accuracy'])} | {f(v['accuracy_mom'])} |")
+    ss = j.setup_stats()
+    if ss["global"]["n"]:
+        rows += ["", f"## Setups de estudio (papel: {setups.MARGIN:.0f} $ x{setups.LEVERAGE}; mitad en TP1, mitad en TP2)", "",
+                 "| Moneda | Setups | Activos | Sin entrada | Operados | Ganadores | Stops | TP2 | P&L total $ | P&L medio $ |",
+                 "|---|---|---|---|---|---|---|---|---|---|"]
+        for k, v in ss.items():
+            rows.append(f"| {k} | {v['n']} | {v['active']} | {v['no_fill']} | {v['traded']} | {v['wins']} | {v['stops']} | "
+                        f"{v['tp2']} | {v['total']:+.2f} | {f(v['avg'])} |")
+        rows.append("Los setups de varias monedas son casi la misma apuesta (correlacion ~0.9): no los cuentes como independientes.")
     rows += ["", f"Corridas completadas: {g['n_runs']} (fallidas/sin terminar: {g['n_failed_runs']}). "
                  "Se necesitan >=100 evaluadas por moneda antes de concluir nada."]
     (out_dir / "stats.md").write_text("\n".join(rows), encoding="utf-8")
 
 
+def _evaluate_setups(j: journal.Journal, setup_fetch) -> None:
+    """Re-simula cada setup sin cerrar con las velas 15m posteriores a su creacion (sin estado: se puede repetir)."""
+    for st in j.unfinished_setups():
+        try:
+            res = setups.simulate(st, setup_fetch(st["symbol"], st["created_ts"]), st["margin"], st["leverage"])
+            j.update_setup(st["id"], res)
+        except Exception as e:  # noqa: BLE001  un setup que no se puede evaluar queda para la proxima corrida
+            print(f"[setup {st['symbol']}] sin evaluar: {type(e).__name__}: {e}")
+
+
 def run_once(out_dir=OUT, fetcher=candles.fetch_all, monitor_db=MONITOR_DB, send=notify.send,
              resolver=candles.fetch_price_at, use_claude: bool | None = None,
-             claude_ask=None) -> dict:
+             claude_ask=None, setup_fetch=candles.fetch_candles_since) -> dict:
     """use_claude: None -> depende de REPORTER_USE_CLAUDE=1 (apagado por defecto)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -81,6 +101,7 @@ def run_once(out_dir=OUT, fetcher=candles.fetch_all, monitor_db=MONITOR_DB, send
             price = resolver(p["symbol"], p["ts"])
             if price is not None:
                 j.resolve(p["id"], price, ts)
+        _evaluate_setups(j, setup_fetch)
 
         blocks, frames_1h, failed = {}, {}, []
         for sym in candles.PAIRS:

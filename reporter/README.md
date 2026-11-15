@@ -25,7 +25,15 @@ Las 4 monedas se mueven juntas: cuenta el numero de **corridas**, no de predicci
 `python reporter/export.py` hace una corrida fresca y manda a Telegram dos mensajes de texto: `📋 DATOS TÉCNICOS` y
 `📰 NOTICIAS` (partidos en trozos si son largos). Se pegan en una conversacion con Claude, que devuelve el JSON de
 predicciones; luego `python reporter/save_claude.py preds.json` lo guarda como `claude_v1`.
-En Termux hay un boton de pantalla de inicio con Termux:Widget (ver `termux/README.md`).
+En Termux se puede poner un boton en la pantalla de inicio con Termux:Widget (script en `~/.shortcuts/`).
+
+## Setups de estudio (papel, sin dinero real)
+Cada prediccion de Claude puede llevar un `setup` (`side`, `entry`, `stop`, `tp1`, `tp2`; ver `reglas.md`, seccion 6).
+`save_claude.py` lo guarda en la tabla `setups` y en cada corrida (`run.py` o `export.py`) se evalua con velas 15m
+posteriores al momento de guardarlo: entrada limite (caduca a las 24 h), 100 $ x5, mitad en TP1 y mitad en TP2,
+cierre forzado a las 72 h, comision 0,05 % por lado. Si una vela toca stop y objetivo a la vez, gana el stop
+(conservador). El resultado sale en `out/stats.md` (seccion "Setups de estudio"): operados, ganadores, stops, TP2, P&L.
+Reglas completas en el docstring de `setups.py`.
 
 ## Siguiente paso
 Sustituir `baseline.py` por el agente con Claude (misma interfaz: resumen de la moneda -> `prob_up`, `invalidation`, `note`).

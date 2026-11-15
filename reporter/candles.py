@@ -84,5 +84,30 @@ def fetch_price_at(symbol: str, ts_iso: str) -> float | None:
     return None
 
 
+def fetch_candles_since(symbol: str, created_ts: str, limit: int = 500) -> pd.DataFrame:
+    """Velas 15m CERRADAS desde la primera que abre en o despues de `created_ts` (para evaluar setups).
+    Devuelve un DataFrame vacio si aun no hay ninguna cerrada; lanza RuntimeError si la red falla."""
+    from datetime import datetime, timezone
+    step = STEP_MS["15m"]
+    created_ms = int(datetime.strptime(created_ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() * 1000)
+    start = -(-created_ms // step) * step  # redondeo hacia arriba a la rejilla de 15 min
+    last: Exception | None = None
+    for host in HOSTS:
+        for attempt in range(3):
+            try:
+                r = requests.get(f"{host}/api/v3/klines", timeout=15,
+                                 params={"symbol": symbol, "interval": "15m", "startTime": start, "limit": limit})
+                if r.status_code == 451:
+                    last = RuntimeError("451 bloqueo regional")
+                    break
+                r.raise_for_status()
+                raw = drop_unclosed(r.json())
+                return parse_klines(raw, "15m") if raw else pd.DataFrame(columns=COLS)
+            except (requests.RequestException, ValueError) as e:
+                last = e
+                time.sleep(2 ** attempt)
+    raise RuntimeError(f"no se pudieron bajar velas {symbol} 15m: {last}")
+
+
 def fetch_all(symbol: str) -> dict[str, pd.DataFrame]:
     return {iv: fetch_klines(symbol, iv, n) for iv, n in WINDOWS.items()}

@@ -446,6 +446,96 @@ def test_claude_daily_cap():
     print("OK claude: tope diario de llamadas")
 
 
+import setups  # noqa: E402
+
+
+def _cs(rows, start="2026-01-01T00:00:00Z"):
+    t0 = pd.Timestamp(start)
+    return pd.DataFrame([{"open_time": t0 + pd.Timedelta(minutes=15 * i), "open": o, "high": h, "low": l, "close": c,
+                          "volume": 1.0} for i, (o, h, l, c) in enumerate(rows)])
+
+
+SHORT = {"side": "short", "entry": 100.0, "stop": 104.0, "tp1": 92.0, "tp2": 88.0, "created_ts": "2026-01-01T00:00:00Z"}
+LONG = {"side": "long", "entry": 100.0, "stop": 96.0, "tp1": 108.0, "tp2": 112.0, "created_ts": "2026-01-01T00:00:00Z"}
+Q, F, Q2 = (98, 99, 97, 98), (98, 100.5, 97, 99), (97, 99, 95, 96)
+
+
+def _sim(s, rows):
+    return setups.simulate(s, _cs(rows))
+
+
+def test_setup_parse_and_plan():
+    ok = setups.parse_setup({"side": "SHORT", "entry": 100, "stop": 104, "tp1": 92, "tp2": 88})
+    assert ok["side"] == "short"
+    p = setups.plan_usd(ok)
+    assert round(p["risk_usd"], 6) == 20 and round(p["tp1_usd"], 6) == 40 and round(p["tp2_usd"], 6) == 60
+    for bad in ({"side": "short", "entry": 100, "stop": 104, "tp1": 105, "tp2": 88},
+                {"side": "long", "entry": 100, "stop": 104, "tp1": 108, "tp2": 112},
+                {"side": "x", "entry": 1, "stop": 2, "tp1": 3, "tp2": 4}, {"side": "short", "entry": 100}, "texto"):
+        try:
+            setups.parse_setup(bad)
+            raise AssertionError("debio fallar")
+        except ValueError:
+            pass
+    print("OK setups: validacion de orden de precios y cifras en dolares")
+
+
+def test_setup_simulation():
+    assert _sim(SHORT, [Q] * 3)["status"] == "waiting"
+    r = _sim(SHORT, [Q] * 96)
+    assert r["outcome"] == "no_fill" and r["pnl"] == 0.0 and r["filled_ts"] is None
+    r = _sim(SHORT, [F, (99, 105, 98, 99)])
+    assert r["outcome"] == "stop" and r["pnl"] == -20.5
+    assert _sim(SHORT, [(98, 105, 97, 99)])["outcome"] == "stop"  # la vela de entrada tambien puede parar
+    assert _sim(SHORT, [F, Q2])["status"] == "open"
+    r = _sim(SHORT, [F, (99, 100, 91, 92), (92, 93, 87, 88)])
+    assert r["outcome"] == "tp2" and r["pnl"] == 49.5
+    r = _sim(SHORT, [F, (99, 105, 91, 95)])  # stop y TP1 en la misma vela: gana el stop
+    assert r["outcome"] == "stop" and r["pnl"] == -20.5
+    r = _sim(SHORT, [F, (99, 100, 91, 92), (92, 105, 91, 100)])
+    assert r["outcome"] == "tp1_stop" and r["pnl"] == 9.5
+    r = _sim(SHORT, [F] + [Q2] * 288)  # 72 h sin cerrar: sale al cierre de la ultima vela dentro del plazo
+    assert r["outcome"] == "timeout" and r["pnl"] == 19.5
+    r = _sim(LONG, [(102, 103, 99.5, 101), (101, 108.5, 100, 108), (108, 113, 107, 112)])
+    assert r["outcome"] == "tp2" and r["pnl"] == 49.5
+    assert _sim(SHORT, [])["status"] == "waiting"  # aun no hay velas cerradas
+    print("OK setups: espera, sin entrada, stop, TP1/TP2, empate de vela, timeout y long")
+
+
+def test_setup_journal_save_claude_and_run():
+    out = Path(tempfile.mkdtemp())
+    j = journal.Journal(str(out / "journal.db"))
+    r = j.start_run("2026-01-01T00:00:00Z")
+    j.save_prediction(r, "BTCUSDT", "2026-01-01T00:00:00Z", 100.0, 0.4, "baseline_v1", ref_mom=0.4)
+    j.end_run(r, True)
+    pred = {"prob_up": 0.42, "invalidation": 104.0, "note": "x"}
+    sent = []
+    res = save_claude.save_claude({"BTCUSDT": {**pred, "setup": {"side": "short", "entry": 100, "stop": 104, "tp1": 92, "tp2": 88}}},
+                                  out, send=lambda t: sent.append(t) or True)
+    assert res["saved"] == ["BTCUSDT"] and res["setups"] == ["BTCUSDT"]
+    assert "SHORT" in sent[0] and "TP1" in sent[0] and "−20.0 $" in sent[0]
+    again = save_claude.save_claude({"BTCUSDT": {**pred, "setup": {"side": "short", "entry": 100, "stop": 104, "tp1": 92, "tp2": 88}}},
+                                    out, send=lambda t: True)
+    assert again["saved"] == [] and again["setups"] == []  # sin duplicados
+    try:
+        save_claude.save_claude({"BTCUSDT": {**pred, "setup": {"side": "short", "entry": 100, "stop": 90, "tp1": 92, "tp2": 88}}},
+                                out, send=lambda t: True)
+        raise AssertionError("debio fallar")
+    except ValueError:
+        pass
+    assert len(j.unfinished_setups()) == 1
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        run.run_once(out, fetcher=lambda s: frames_for(100), monitor_db=out / "no.db", send=lambda t: True,
+                     resolver=lambda s, ts: None, setup_fetch=lambda sym, ts: _cs([F, (99, 105, 98, 99)]))
+    row = dict(j.db.execute("SELECT * FROM setups").fetchone())
+    assert row["status"] == "closed" and row["outcome"] == "stop" and row["pnl"] == -20.5
+    st = j.setup_stats()
+    assert st["global"]["traded"] == 1 and st["global"]["stops"] == 1 and st["BTCUSDT"]["total"] == -20.5
+    assert "Setups de estudio" in (out / "stats.md").read_text(encoding="utf-8")
+    print("OK setups: se guardan sin duplicar, validan, se evaluan en run_once y salen en stats.md")
+
+
 import export  # noqa: E402
 
 
@@ -470,6 +560,9 @@ def test_export_two_messages_and_chunking():
 
 
 if __name__ == "__main__":
+    test_setup_parse_and_plan()
+    test_setup_simulation()
+    test_setup_journal_save_claude_and_run()
     test_export_two_messages_and_chunking()
     test_candle_start_aligned()
     test_parse_predictions()

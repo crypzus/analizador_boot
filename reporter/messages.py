@@ -50,6 +50,14 @@ def claude_message(rows: list[dict], ts: str) -> str:
             f"   🤖 Claude: {r['prob_up'] * 100:.0f}% {prob_dot(r['prob_up'])}   vs   📊 Técnico: {r['base_prob'] * 100:.0f}% {prob_dot(r['base_prob'])}",
             f"   🛡️ Se invalida si cruza {fmt_price(r['invalidation'])}",
             f"   💬 {r['note']}",
-            "",
         ]
+        s = r.get("setup")
+        if s:
+            side = "SHORT 🔻" if s["side"] == "short" else "LONG 🔺"
+            lines += [
+                f"   📌 {side}: entrada {fmt_price(s['entry'])} · 🛑 SL {fmt_price(s['stop'])}",
+                f"   ✅ TP1 {fmt_price(s['tp1'])} · TP2 {fmt_price(s['tp2'])}",
+                f"   💵 {s['margin']:.0f} $ x{s['leverage']:g}: −{s['risk_usd']:.1f} $ / +{s['tp1_usd']:.1f} $ / +{s['tp2_usd']:.1f} $",
+            ]
+        lines.append("")
     return "\n".join(lines).rstrip()

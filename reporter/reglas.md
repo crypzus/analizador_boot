@@ -29,6 +29,16 @@ Un precio concreto que, de cruzarse, anula el escenario: el soporte mas cercano 
 
 ## 5. Formato de salida
 ```json
-{"BTCUSDT": {"prob_up": 0.45, "invalidation": 76200.0, "note": "razon en una linea"}}
+{"BTCUSDT": {"prob_up": 0.45, "invalidation": 76200.0, "note": "razon en una linea",
+             "setup": {"side": "short", "entry": 67200.0, "stop": 69000.0, "tp1": 62006.0, "tp2": 60000.0}}}
 ```
 `note`: maximo ~140 caracteres, en espanol, con la senal principal y el nivel clave.
+`setup` es opcional (ver seccion 6): omitelo si no hay una entrada clara.
+
+## 6. Setups de operacion (estudio en papel: 100 $ por moneda, apalancamiento 5x)
+- **Solo a favor de la tendencia 4h:** short si es bajista, long si es alcista. Si es lateral, sin setup.
+- **Entrada limite en el rebote, no en el extremo:** hacia el nivel roto (soporte roto que ahora es resistencia, o al reves) o hacia un maximo/minimo reciente de 15m. Nunca perseguir el precio actual.
+- **Stop:** 1 a 1.5 ATR de 4h mas alla de la zona de entrada, fuera del nivel que invalida la idea.
+- **TP1** en el extremo reciente o nivel estructural; **TP2** una extension mas alla (nivel redondo o 1-1.5 ATR de 4h). Se cierra la mitad en cada uno.
+- Orden estricto: short `tp2 < tp1 < entry < stop`; long `stop < entry < tp1 < tp2`. Un setup incoherente se descarta.
+- El setup caduca si no se llena en 24 h. Las monedas estan correlacionadas (~0.9): son una sola apuesta, no cuatro.

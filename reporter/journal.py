@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS predictions(
   ref50 REAL, ref_mom REAL, resolved_ts TEXT, price_24h REAL, outcome INTEGER,
   brier REAL, brier_ref50 REAL, brier_mom REAL);
 CREATE INDEX IF NOT EXISTS ix_pred_open ON predictions(resolved_ts, ts);
+CREATE TABLE IF NOT EXISTS setups(
+  id INTEGER PRIMARY KEY, run_id INTEGER, symbol TEXT, created_ts TEXT, side TEXT,
+  entry REAL, stop REAL, tp1 REAL, tp2 REAL, margin REAL, leverage REAL,
+  status TEXT, filled_ts TEXT, closed_ts TEXT, outcome TEXT, pnl REAL);
 """
 
 
@@ -75,6 +79,45 @@ class Journal:
     def has_prediction(self, run_id: int, symbol: str, method: str) -> bool:
         return self.db.execute("SELECT 1 FROM predictions WHERE run_id=? AND symbol=? AND method=?",
                                (run_id, symbol, method)).fetchone() is not None
+
+    def save_setup(self, run_id: int, symbol: str, created_ts: str, s: dict,
+                   margin: float = 100.0, leverage: float = 5) -> int:
+        cur = self.db.execute(
+            "INSERT INTO setups(run_id,symbol,created_ts,side,entry,stop,tp1,tp2,margin,leverage,status) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,'waiting')",
+            (run_id, symbol, created_ts, s["side"], s["entry"], s["stop"], s["tp1"], s["tp2"], margin, leverage))
+        self.db.commit()
+        return cur.lastrowid
+
+    def has_setup(self, run_id: int, symbol: str) -> bool:
+        return self.db.execute("SELECT 1 FROM setups WHERE run_id=? AND symbol=?", (run_id, symbol)).fetchone() is not None
+
+    def unfinished_setups(self) -> list[dict]:
+        rows = self.db.execute("SELECT * FROM setups WHERE status!='closed' ORDER BY created_ts").fetchall()
+        return [dict(r) for r in rows]
+
+    def update_setup(self, setup_id: int, res: dict) -> None:
+        self.db.execute("UPDATE setups SET status=?, filled_ts=?, closed_ts=?, outcome=?, pnl=? WHERE id=?",
+                        (res["status"], res["filled_ts"], res["closed_ts"], res["outcome"], res["pnl"], setup_id))
+        self.db.commit()
+
+    def setup_stats(self) -> dict:
+        """Por moneda y global: setups, activos, sin entrada, operados (con entrada y cerrados), ganadores, stops, TP2, P&L."""
+        def agg(where: str = "", args: tuple = ()) -> dict:
+            r = self.db.execute(
+                "SELECT COUNT(*) n, COALESCE(SUM(status!='closed'),0) active, COALESCE(SUM(outcome='no_fill'),0) no_fill, "
+                "COALESCE(SUM(status='closed' AND outcome!='no_fill'),0) traded, "
+                "COALESCE(SUM(outcome!='no_fill' AND pnl>0),0) wins, "
+                "COALESCE(SUM(outcome IN ('stop','tp1_stop')),0) stops, COALESCE(SUM(outcome='tp2'),0) tp2, "
+                f"COALESCE(SUM(CASE WHEN outcome!='no_fill' THEN pnl END),0) total FROM setups WHERE 1=1 {where}",
+                args).fetchone()
+            d = dict(r)
+            d["avg"] = d["total"] / d["traded"] if d["traded"] else None
+            return d
+        out = {"global": agg()}
+        for (sym,) in self.db.execute("SELECT DISTINCT symbol FROM setups ORDER BY symbol").fetchall():
+            out[sym] = agg("AND symbol=?", (sym,))
+        return out
 
     def stats(self, method: str | None = None) -> dict:
         """Por moneda y global (opcionalmente de un solo metodo). n_runs cuenta corridas completadas."""

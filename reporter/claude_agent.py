@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import candles  # noqa: E402
 import journal  # noqa: E402
 import save_claude  # noqa: E402
+import setups  # noqa: E402
 
 RULES_PATH = Path(__file__).parent / "reglas.md"
 BETA_FALLBACK = "server-side-fallback-2026-07-01"
@@ -63,6 +64,11 @@ def parse_predictions(text: str, allowed=candles.PAIRS) -> dict:
         if not 0.05 <= prob <= 0.95:
             raise ValueError(f"{sym}: prob_up fuera de 0.05-0.95")
         out[sym] = {"prob_up": prob, "invalidation": inv, "note": " ".join(str(p.get("note", "")).split())[:140]}
+        if p.get("setup"):
+            try:
+                out[sym]["setup"] = setups.parse_setup(p["setup"])
+            except ValueError:
+                pass  # un setup incoherente se descarta; la prediccion de la moneda se conserva
     if not out:
         raise ValueError("ninguna moneda valida en la respuesta")
     return out
