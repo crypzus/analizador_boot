@@ -6,7 +6,7 @@ import time
 import pandas as pd
 import requests
 
-PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT"]
+PAIRS = ["BTCUSDT", "ADAUSDT"]
 # numero de velas: 4h x 60 dias, 1h x 15 dias, 15m x 24 h
 WINDOWS = {"4h": 360, "1h": 360, "15m": 96}
 STEP_MS = {"15m": 15 * 60_000, "1h": 3_600_000, "4h": 4 * 3_600_000}

@@ -27,7 +27,7 @@ import sources as S  # noqa: E402
 from store import Store  # noqa: E402
 
 OUT = Path(__file__).parent / "out"
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT"]
+SYMBOLS = ["BTCUSDT", "ADAUSDT"]
 
 # nombre, funcion, intervalo minimo en minutos (0 = en cada ciclo)
 FEEDS = [

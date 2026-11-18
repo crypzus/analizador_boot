@@ -143,13 +143,13 @@ def test_news_reads_and_cleans():
 
 
 def test_build_report_all_pairs_and_disclaimer():
-    blocks = {s: report.coin_block(s, frames_for(100 + i)) for i, s in enumerate(candles.PAIRS[:3])}
+    blocks = {s: report.coin_block(s, frames_for(100 + i)) for i, s in enumerate(candles.PAIRS[:1])}
     blocks["ADAUSDT"] = None  # moneda fallida
     txt = report.build_report(blocks, ["[HIGH] sec: x"], {"ETHUSDT": 0.9})
     for s in candles.PAIRS:
         assert s in txt
     assert "sin datos" in txt and report.DISCLAIMER in txt and "ETHUSDT +0.90" in txt
-    print("OK informe: 4 pares, moneda sin datos y aviso")
+    print("OK informe: 2 pares, moneda sin datos y aviso")
 
 
 def test_btc_correlation():
@@ -240,16 +240,16 @@ def test_run_once_one_pair_fails():
     sent = []
 
     def fetcher(sym):
-        if sym == "ETHUSDT":
+        if sym == "ADAUSDT":
             raise RuntimeError("binance caido")
         return frames_for(100)
 
     with contextlib.redirect_stdout(io.StringIO()):
         res = run.run_once(out, fetcher=fetcher, monitor_db=out / "no.db", send=lambda t: sent.append(t) or True,
                            resolver=lambda s, ts: None)
-    assert res["failed"] == ["ETHUSDT"] and res["ok"] == ["BTCUSDT", "SOLUSDT", "ADAUSDT"]
+    assert res["failed"] == ["ADAUSDT"] and res["ok"] == ["BTCUSDT"]
     n = sqlite3.connect(out / "journal.db").execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
-    assert n == 3 and "ETHUSDT: sin datos" in sent[0] and "REPORTE TÉCNICO" in sent[0] and not (out / "run.lock").exists()
+    assert n == 1 and "ADAUSDT: sin datos" in sent[0] and "REPORTE TÉCNICO" in sent[0] and not (out / "run.lock").exists()
     assert "no es asesoria" in (out / "report.md").read_text(encoding="utf-8")
     print("OK corrida: una moneda falla, las otras siguen, bloqueo liberado")
 
@@ -424,7 +424,7 @@ def test_claude_off_by_default():
 def test_claude_on_saves_and_errors_dont_break():
     out = Path(tempfile.mkdtemp())
     res = _run(out, use_claude=True, claude_ask=lambda rep, rules: claude_agent.parse_predictions(json.dumps(GOOD)))
-    assert res["claude"].startswith("guardado") and count_claude(out) == 4
+    assert res["claude"].startswith("guardado") and count_claude(out) == len(candles.PAIRS)
     out2 = Path(tempfile.mkdtemp())
 
     def fail(rep, rules):
@@ -587,7 +587,7 @@ def test_volatility_forecast_formula_and_guards():
     assert volatility.forecast(None, MODEL, "BTCUSDT") is None
     assert volatility.load_model(Path(tempfile.gettempdir()) / "no_existe_xyz.json") is None
     real = volatility.load_model()
-    assert real and set(real["coins"]) == {"BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT"}
+    assert real and set(real["coins"]) >= {"BTCUSDT", "ADAUSDT"}
     print("OK volatilidad: formula, banda, etiqueta, guardas y modelo real cargable")
 
 
@@ -600,14 +600,14 @@ def test_vol_journal_and_run_once():
     with contextlib.redirect_stdout(io.StringIO()):
         run.run_once(out, vol_resolver=lambda s, ts: None, **kw)
     j = journal.Journal(str(out / "journal.db"))
-    assert j.db.execute("SELECT COUNT(*) FROM vol_forecasts").fetchone()[0] == 4
+    assert j.db.execute("SELECT COUNT(*) FROM vol_forecasts").fetchone()[0] == len(candles.PAIRS)
     assert "volatilidad esperada 24 h" in (out / "report.md").read_text(encoding="utf-8")
     assert "Rango esperado 24 h" in sent[0] and "Stop sugerido" in sent[0]
     actual = _hourly(24, rng_pct=0.02)  # rango real = ln(1,02)
     with contextlib.redirect_stdout(io.StringIO()):
         run.run_once(out, vol_resolver=lambda s, ts: actual, **kw)
     vs = j.vol_stats()
-    assert vs["n"] == 4 and vs["rmse_model"] > 0 and 0 <= vs["inside"] <= 1
+    assert vs["n"] == len(candles.PAIRS) and vs["rmse_model"] > 0 and 0 <= vs["inside"] <= 1
     assert "Pronostico de volatilidad" in (out / "stats.md").read_text(encoding="utf-8")
     # sin modelo todo sigue igual y sin linea de volatilidad
     out2 = Path(tempfile.mkdtemp())

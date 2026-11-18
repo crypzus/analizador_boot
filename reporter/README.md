@@ -1,7 +1,7 @@
 # Reporter de mercado y predicciones a 24 h (solo analiza y avisa)
 
 No opera, no usa claves de trading ni cuentas. No es asesoria financiera.
-Pares: BTCUSDT, ETHUSDT, SOLUSDT, ADAUSDT. Velas publicas de Binance: 4h (60 dias), 1h (15 dias), 15m (24 h).
+Pares: BTCUSDT y ADAUSDT. Velas publicas de Binance: 4h (60 dias), 1h (15 dias), 15m (24 h).
 
 ## Uso (PowerShell, dentro de `trading-bot`)
 ```powershell
